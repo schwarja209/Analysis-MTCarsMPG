@@ -1,0 +1,159 @@
+---
+title: "Analysis - Motor Trend"
+author: "Jacob Schwartz"
+date: "November 10, 2017"
+output:
+  html_document:
+    keep_md: yes
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Executive Summary
+
+For this analysis, we work for Motor Trend, a magazine about the automobile industry. Looking at a data set of a collection of cars (the `mtcars` dataset in R), we are interested in exploring the relationship between a set of variables and miles per gallon (MPG). We are particularly interested in the following two questions:
+
+- Is an automatic or manual transmission better for MPG?
+- How can we quantify the MPG difference between automatic and manual transmissions?
+
+We will do some statistical testing and regression analysis to answer these questions.
+
+A description of the dataset can be found [here]( https://stat.ethz.ch/R-manual/R-devel/library/datasets/html/mtcars.html).
+
+
+## Data Processing
+
+In order to do our analysis, the first thing we need to do is load the dataset itself, which is found in the `datasets` library in R.
+
+```{r initialize, results="hide", warning=FALSE, message=FALSE}
+library(datasets)
+data(mtcars)
+```
+
+Then we can take a look at the data contained in the dataset.
+
+```{r explore, comment="", cache=TRUE}
+str(mtcars)
+```
+
+From the results above, we can see that the dataset contains 11 different variables.  The first is our outcome variable `mpg`, and the rest are modifiers that affect a car's mpg performance.  We can also see that, although all of the variables are currently stored as numbers, 5 appear to have the same numbers repeating over and over.  This means they are actually likely factors.  So before we proceed any further, let's treat the as such.
+
+```{r process, comment="", cache=TRUE}
+mtcars$am<-factor(mtcars$am,labels=c("Automatic","Manual"))
+mtcars$gear<-factor(mtcars$gear)
+mtcars$vs<-factor(mtcars$vs)
+mtcars$carb<-factor(mtcars$carb)
+mtcars$cyl<-factor(mtcars$cyl)
+```
+
+Note that for the `am` variable, we didn't just convert it to a factor, but also relabeled the factors from "0" and "1" to "Automatic" and "Manual".  This variable indicates the transmission type, which is what our questions are specifically concerned with.  So relabeling the factor values just makes it easier to follow going forward.
+
+
+## Data Analysis
+
+#### Summary
+
+Now that we have our data in place, we can take a closer look at the `mpg` variable, and see how it relates to the transmission factor variable `am`.
+
+```{r summarize1, comment="", cache=TRUE}
+table1<-aggregate(mpg~am,data=mtcars,FUN=mean)
+print(table1)
+```
+
+The table above clearly shows that cars with a manual transmission, in the `mtcars` dataset we're using, have higher `mpg` on average than those with an automatic transmission.  We can show this even more clearly with a [boxplot](#boxplot).
+
+As we can see in the [boxplot](#boxplot) in Appendix section A, the mean `mpg` for manual transmission cars is about 7 miles higher than it is for automatic transmission cars, and the quantile spread has a similar ratio.
+
+All of that said, however, there could be something confounding these results.  Perhaps all of the manual cars in our sample weigh less than the automatic ones.  Perhaps they all have more horsepower.  We don't yet have enough information to confidently and unequivocally answer the questions posed.
+
+#### Causality
+
+One thing we can do to increase our confidence in our table results is do a t-test.  This will test the null hypothesis that the transmission type has no effect on mpg (in other words, the idea that our boxplot results were all correlation, not causation).
+
+```{r summarize1_test, comment="", cache=TRUE}
+t.test(mtcars$mpg~mtcars$am,conf.level=0.95)
+```
+
+In the results above we see a *p-value of 0.001374*, which is well outside the 95% confidence interval for our null hypothesis.  This means that transmission indeed does seem to have a causal effect on the mpg a car can achieve (assuming our sample is sufficiently representative of the entire car population).
+
+#### Modeling
+
+Though our t-test results seem clear, one thing we still need to account for is the degree to which the transmissions affects mpg.  This calls for some modeling.
+
+```{r summarize2, comment="", cache=TRUE}
+fit_basic<-lm(mpg~am,data=mtcars)
+summary(fit_basic)
+```
+
+As we can see above, a basic linear model which predicts mpg based solely on the transmission type only has an *r-squared value of about 36%*.  In other words, a model usin the transmission type alone to predict mpg only appears to account of 36% of the variation in our sample. So from this it seems clear that there's more to the story.  Perhaps there's even some confounding.
+
+In order to get a more comprehensive idea of what's happening in our data, one thing we can do is [graph](#pairs) each of the variables in our dataset against mpg and see which are correlated (this is shown in [appendix B](#pairs)).  We could use these graphs to help us select additional variables for our model.
+
+Alternatively, we can simply build a model that includes all of the variables in our sample and see which have the most significant coefficients.  Actually, we can automate the last part with the `step` function, which will pick out the most highly correlated variables for us and provide us with a conservative yet comprehensive model.
+
+```{r summarize2_improved1, comment="", results="hide", cache=TRUE}
+fit_all<-lm(mpg~.,data=mtcars)
+fit_best<-step(fit_all,direction="both")
+```
+
+```{r summarize2_improved2, comment="", cache=TRUE}
+summary(fit_best)
+```
+
+We can see above that the model now includes the factor variables for the number of *cylinders*, the *horsepower* and the *weight*, in addition to the transmission (though all of these new variables are negatively correlated with mpg).  We can also see that our *r-squared value is now almost 87%*, which means this model does a much better job accounting for the variability in our sample.
+
+Also of note in the model avode is that the transmission variable does not appear to have a significant p-value.  The given p-value of over 0.2 is well within a 95% confidence interval, which would indicate fairly low confidence that the transmission has an actual influence on mpg.
+
+We can verfify this further by running a confidence interval calculation for the model.
+
+```{r summarize2_test, comment="", cache=TRUE}
+confint(fit_best)
+```
+
+From the results above, we can see that the 95% confidence interval for transmission crosses zero.  This further confirms that we cannot reject the null hypothesis that transmission has no influence on mpg.
+
+We can also see in [appendix section D](#resid) that our model is normal, and that we don't appear to have any significant outliers in our residuals.
+
+
+## Conclusion
+
+Based on our analysis *we can't really answer the first question with the data we have*.  It does appear that vehicles with a manual transmission are more fuel efficient than those with an automatic transmission.  However, it is possible that this is just do to other confounding factors associated with manual cars, such as weight and the number of cylinders.  However, this is only part of the puzzle.  If a manual transmission does in fact affect mpg, it appears it will only afford a car *an addition 1.81 miles per gallon on average* (as ooposed to the 7 mpg difference we saw in our initial table).  By comparison, for every decrease in 1000 pounds, a car will gain 2.5 miles per gallon on average.
+
+
+## Appendix
+
+#### A: Data Boxplot {#boxplot}
+
+A boxplot showing the correlation of mpg with tranmission types.
+
+```{r summarize1_graph, comment="", fig.height=4, cache=TRUE}
+boxplot(mpg~am,data=mtcars,xlab="Transmission",ylab="Miles per Gallon",
+        main="MotorTrend MPG vs Transmission Type")
+```
+
+#### B: Data Correlations {#paris}
+
+A pairwise comparison of each variable in the `mtcars` dataset.
+
+```{r summarize2_graph1, comment="", cache=TRUE}
+pairs(mpg ~ ., data = mtcars)
+```
+
+#### C: Final Model Graph Tests {#resid}
+
+Some graphical tests of our final model's accuracy.
+
+```{r summarize2_graph2, comment="", cache=TRUE}
+par(mfrow=c(2,2))    
+plot(fit_best)
+```
+
+#### D: Session Info
+
+The conditions and specifications under which this analysis was performed are listed below.
+
+```{r sessions_info, comment="", cache=TRUE}
+print(sessionInfo())
+```
